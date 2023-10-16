@@ -9,18 +9,6 @@ def sendSlackNotification(String message, color='good') {
     )
 }
 
-def setupBranch{
-  def envFile
-  if (env.BRANCH_NAME == 'development') {
-    envFile = env.DEVELOPMENT_ENV
-    SERVER = env.DE
-  } else if (env.BRANCH_NAME == 'staging') {
-    envFile = env.STAGING_ENV
-  } else if (env.BRANCH_NAME == 'main'){
-    envFile = env.PRODUCTION_ENV
-  }
-}
-
 pipeline {
 
   agent { node { label "lajoe" } }
@@ -94,7 +82,7 @@ pipeline {
     stage('Development: Send Artifact to Server') {
       when { branch "development" }
       steps {
-        withCredentials([string(credentialsId: "DEVELOPMENT_SERVER", variable: 'DEVELOPMENT_SERVER')]) {
+        withCredentials([string(credentialsId: DEVELOPMENT_SERVER, variable: 'DEVELOPMENT_SERVER')]) {
           sshagent(credentials: ['PRIVATE_KEY']){
             sh 'rsync -avz --delete build/ ${DEVELOPMENT_SERVER}:~/fe-dumbmerch/'
           }
@@ -102,12 +90,11 @@ pipeline {
       }
     }
 
-    stage('staging: Send Artifact to Server') {
-      when { branch "staging" }
+    stage('staging: Upload build folder to S3 bucket') {
       steps {
-        withCredentials([string(credentialsId: "DEVELOPMENT_SERVER", variable: 'DEVELOPMENT_SERVER')]) {
-          sshagent(credentials: ['PRIVATE_KEY']){
-            sh 'rsync -avz --delete build/ ${DEVELOPMENT_SERVER}:~/fe-dumbmerch/'
+        withCredentials([string(credentialsId: PRODUCTION_BUCKET_NAME, variable: 'BUCKET_NAME')]) {
+          withAWS(region:'ap-southeast-1', credentials:'AWS_CREDENTIAL') {
+            s3Upload(file:'./build', bucket: "${BUCKET_NAME}", path:'')
           }
         }
       }
@@ -117,7 +104,7 @@ pipeline {
 
   post {
     failure {
-      sendSlackNotification('The build process has failed. Please review the build log and contact the administrator for assistance.', 'danger')
+      sendSlackNotification('The build process has failed.', 'danger')
     }
     aborted {
       sendSlackNotification('The build process has been manually aborted.', 'warning')
